@@ -53,11 +53,11 @@ TIM_HandleTypeDef htim8;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-static TIM_HandleTypeDef* UI_UPDATE_TIM_INSTANCE_PTR = &htim1;
-static TIM_HandleTypeDef* LVGL_TICK_TIM_INSTANCE_PTR = &htim2;
-static TIM_HandleTypeDef* FREQ_IC_TIM_INSTANCE_PTR = &htim3;
-static TIM_HandleTypeDef* ENCODER_TIM_INSTANCE_PTR = &htim4;
-static TIM_HandleTypeDef* PWM_TIM_INSTANCE_PTR = &htim8;
+static TIM_HandleTypeDef *UI_UPDATE_TIM_INSTANCE_PTR = &htim1;
+static TIM_HandleTypeDef *LVGL_TICK_TIM_INSTANCE_PTR = &htim2;
+static TIM_HandleTypeDef *FREQ_IC_TIM_INSTANCE_PTR = &htim3;
+static TIM_HandleTypeDef *ENCODER_TIM_INSTANCE_PTR = &htim4;
+static TIM_HandleTypeDef *PWM_TIM_INSTANCE_PTR = &htim8;
 
 static lv_disp_buf_t disp_buf;
 static lv_color_t buf[LV_HOR_RES_MAX * LV_VER_RES_MAX];
@@ -67,8 +67,12 @@ static volatile uint32_t captured_count_1 = 0;
 static volatile uint32_t captured_count_2 = 0;
 static volatile uint32_t captured_period = 0;
 static volatile float captured_frequency = 0.0f;
-
 static volatile uint8_t ui_update_flag = 0;
+static volatile int32_t encoder_value = 0;
+const int32_t encoder_min = 0;
+const int32_t encoder_max = 100;
+static volatile uint16_t encoder_counter = 0;
+static volatile uint16_t last_encoder_counter = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -103,6 +107,8 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim) {
 			first_capture = 0;
 		}
 	}
+
+	// if (htim == ENCODER_TIM_INSTANCE_PTR) {}
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
@@ -110,12 +116,24 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		ui_update_flag = 1;
 
 	if (htim == LVGL_TICK_TIM_INSTANCE_PTR)
+	{
+		encoder_counter = (uint16_t)ENCODER_TIM_INSTANCE_PTR->Instance->CNT;
+		int32_t unbound_encoder_value = encoder_value + (int16_t)(encoder_counter - last_encoder_counter);
+		last_encoder_counter = encoder_counter;
+
+		if ( unbound_encoder_value > encoder_max ) encoder_value = encoder_max;
+		else if ( unbound_encoder_value < encoder_min ) encoder_value = encoder_min;
+		else encoder_value = unbound_encoder_value;
+
+		PWM_TIM_INSTANCE_PTR->Instance->CCR1 = encoder_value * 72;
 		lv_tick_inc(1);
+	}
+
 }
 
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) {
 	// if (htim == PWM_TIM_INSTANCE_PTR)
-		// ui_update_flag = 1;
+	// ui_update_flag = 1;
 
 }
 
@@ -124,7 +142,8 @@ void start_lvgl_tick() {
 }
 
 void start_encoder_timer() {
-	HAL_TIM_Encoder_Start(ENCODER_TIM_INSTANCE_PTR, TIM_CHANNEL_1 | TIM_CHANNEL_2);
+	HAL_TIM_Encoder_Start_IT(ENCODER_TIM_INSTANCE_PTR,
+			TIM_CHANNEL_1 | TIM_CHANNEL_2);
 }
 /* USER CODE END 0 */
 
@@ -170,7 +189,7 @@ int main(void)
 	lv_init();
 
 	lv_disp_buf_init(&disp_buf, buf, NULL,
-	LV_HOR_RES_MAX * LV_VER_RES_MAX / 10); /*Initialize the display buffer*/
+			LV_HOR_RES_MAX * LV_VER_RES_MAX / 10); /*Initialize the display buffer*/
 
 	lv_disp_drv_t disp_drv; /*Descriptor of a display driver*/
 	lv_disp_drv_init(&disp_drv); /*Basic initialization*/
@@ -195,12 +214,17 @@ int main(void)
 	lv_obj_t *label2 = lv_label_create(lv_scr_act(), NULL);
 	lv_label_set_align(label2, LV_LABEL_ALIGN_CENTER);
 	lv_obj_set_width(label2, 128);
-	lv_obj_align(label2, NULL, LV_ALIGN_IN_LEFT_MID, 0, 0);
+	lv_obj_align(label2, NULL, LV_ALIGN_IN_LEFT_MID, 0, -10);
 
 	lv_obj_t *label3 = lv_label_create(lv_scr_act(), NULL);
 	lv_label_set_align(label3, LV_LABEL_ALIGN_CENTER);
 	lv_obj_set_width(label3, 128);
-	lv_obj_align(label3, NULL, LV_ALIGN_IN_BOTTOM_LEFT, 0, 0);
+	lv_obj_align(label3, NULL, LV_ALIGN_IN_LEFT_MID, 0, 10);
+
+	lv_obj_t *label4 = lv_label_create(lv_scr_act(), NULL);
+	lv_label_set_align(label4, LV_LABEL_ALIGN_CENTER);
+	lv_obj_set_width(label4, 128);
+	lv_obj_align(label4, NULL, LV_ALIGN_IN_BOTTOM_LEFT, 0, 0);
 
 	// Start UI update timer
 	HAL_TIM_Base_Start_IT(UI_UPDATE_TIM_INSTANCE_PTR);
@@ -218,16 +242,10 @@ int main(void)
 	while (1) {
 		lv_task_handler();
 
-		if ( ui_update_flag == 1 ) {
-			uint32_t encoder_count = ENCODER_TIM_INSTANCE_PTR->Instance->CNT;
+		if (ui_update_flag == 1) {
 			lv_label_set_text_fmt(label2, "f = %d", lroundf(captured_frequency));
-			lv_label_set_text_fmt(label3, "enc = %d", encoder_count);
-
-			uint32_t pwm_pulse_length = 0;
-			if (encoder_count < 0) pwm_pulse_length = 0;
-			else if (encoder_count > 100) pwm_pulse_length = 100;
-			else pwm_pulse_length = encoder_count * 10;
-			PWM_TIM_INSTANCE_PTR->Instance->CCR1 = pwm_pulse_length;
+			lv_label_set_text_fmt(label3, "RPM = %d", lroundf(captured_frequency / 4.0f * 60.0f));
+			lv_label_set_text_fmt(label4, "enc = %d", encoder_value);
 
 			ui_update_flag = 0;
 		}
@@ -344,8 +362,6 @@ static void MX_TIM1_Init(void)
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
-  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
 
   /* USER CODE BEGIN TIM1_Init 1 */
 
@@ -366,10 +382,6 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
-  if (HAL_TIM_OC_Init(&htim1) != HAL_OK)
-  {
-    Error_Handler();
-  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterOutputTrigger2 = TIM_TRGO2_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
@@ -377,36 +389,9 @@ static void MX_TIM1_Init(void)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_TIMING;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
-  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
-  if (HAL_TIM_OC_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
-  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
-  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
-  sBreakDeadTimeConfig.DeadTime = 0;
-  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
-  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
-  sBreakDeadTimeConfig.BreakFilter = 0;
-  sBreakDeadTimeConfig.Break2State = TIM_BREAK2_DISABLE;
-  sBreakDeadTimeConfig.Break2Polarity = TIM_BREAK2POLARITY_HIGH;
-  sBreakDeadTimeConfig.Break2Filter = 0;
-  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
-  if (HAL_TIMEx_ConfigBreakDeadTime(&htim1, &sBreakDeadTimeConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
   /* USER CODE BEGIN TIM1_Init 2 */
 
   /* USER CODE END TIM1_Init 2 */
-  HAL_TIM_MspPostInit(&htim1);
 
 }
 
@@ -541,11 +526,11 @@ static void MX_TIM4_Init(void)
   sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
   sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
   sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC1Filter = 3;
+  sConfig.IC1Filter = 5;
   sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
   sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
   sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC2Filter = 3;
+  sConfig.IC2Filter = 5;
   if (HAL_TIM_Encoder_Init(&htim4, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -583,9 +568,9 @@ static void MX_TIM8_Init(void)
 
   /* USER CODE END TIM8_Init 1 */
   htim8.Instance = TIM8;
-  htim8.Init.Prescaler = 71;
+  htim8.Init.Prescaler = 0;
   htim8.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim8.Init.Period = 1000;
+  htim8.Init.Period = 7199;
   htim8.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim8.Init.RepetitionCounter = 0;
   htim8.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;

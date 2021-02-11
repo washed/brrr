@@ -80,7 +80,7 @@ typedef int16_t lv_coord_t;
 #define LV_MEM_CUSTOM      0
 #if LV_MEM_CUSTOM == 0
 /* Size of the memory used by `lv_mem_alloc` in bytes (>= 2kB)*/
-#  define LV_MEM_SIZE    (32U * 1024U)
+#  define LV_MEM_SIZE    (16U * 1024U)
 
 /* Compiler prefix for a big array declaration */
 #  define LV_MEM_ATTR
@@ -378,9 +378,9 @@ typedef void * lv_indev_drv_user_data_t;            /*Type of user data in the i
 
 /* Montserrat fonts with bpp = 4
  * https://fonts.google.com/specimen/Montserrat  */
-#define LV_FONT_MONTSERRAT_8     0
-#define LV_FONT_MONTSERRAT_10    0
-#define LV_FONT_MONTSERRAT_12    0
+#define LV_FONT_MONTSERRAT_8     1
+#define LV_FONT_MONTSERRAT_10    1
+#define LV_FONT_MONTSERRAT_12    1
 #define LV_FONT_MONTSERRAT_14    1
 #define LV_FONT_MONTSERRAT_16    0
 #define LV_FONT_MONTSERRAT_18    0
@@ -477,10 +477,10 @@ typedef void * lv_font_user_data_t;
 #define LV_THEME_DEFAULT_COLOR_PRIMARY      lv_color_hex(0x01a2b1)
 #define LV_THEME_DEFAULT_COLOR_SECONDARY    lv_color_hex(0x44d1b6)
 #define LV_THEME_DEFAULT_FLAG               LV_THEME_MATERIAL_FLAG_LIGHT
-#define LV_THEME_DEFAULT_FONT_SMALL         &lv_font_montserrat_14
-#define LV_THEME_DEFAULT_FONT_NORMAL        &lv_font_montserrat_14
-#define LV_THEME_DEFAULT_FONT_SUBTITLE      &lv_font_montserrat_14
-#define LV_THEME_DEFAULT_FONT_TITLE         &lv_font_montserrat_14
+#define LV_THEME_DEFAULT_FONT_SMALL         &lv_font_montserrat_8
+#define LV_THEME_DEFAULT_FONT_NORMAL        &lv_font_montserrat_10
+#define LV_THEME_DEFAULT_FONT_SUBTITLE      &lv_font_montserrat_10
+#define LV_THEME_DEFAULT_FONT_TITLE         &lv_font_montserrat_12
 
 /*=================
  *  Text settings
